@@ -18,7 +18,7 @@ def month_mapping_builder():
 def expense_to_category_and_category_mapping_builder(exp_to_cat_filename='expToCatMapping.txt'):
     exp_to_cat_filename_with_path = 'src/' + exp_to_cat_filename
 
-    category_mapping = {}
+    categories = set()
     exp_to_cat_mapping = {}
 
     if os.path.exists(exp_to_cat_filename_with_path):
@@ -27,27 +27,27 @@ def expense_to_category_and_category_mapping_builder(exp_to_cat_filename='expToC
             expense = entry[0]
             category = entry[1]
 
-            if category not in category_mapping:
-                category_mapping[category] = 0
+            if category not in categories:
+                categories.add(category)
             if expense not in exp_to_cat_mapping:
                 exp_to_cat_mapping[expense] = category
     else:
         print('[DEBUG] Failed to find file', exp_to_cat_filename_with_path, '.\n')
 
     print('[INFO] Finished building {expense : category} mapping and {category : 0} mapping.\n')
-    return category_mapping, exp_to_cat_mapping
+    return categories, exp_to_cat_mapping
 
 
 def builder():
     months_mapping = month_mapping_builder()
-    category_mapping, exp_to_cat_mapping = expense_to_category_and_category_mapping_builder()
+    categories, exp_to_cat_mapping = expense_to_category_and_category_mapping_builder()
 
     for month in months_mapping.keys():
         months_mapping[month] = {}
-        for category in category_mapping.keys():
+        for category in categories:
             months_mapping[month][category] = 0
     print('[INFO] Finished building {month_name : {category : 0} } mapping.\n')
-    return months_mapping, category_mapping
+    return months_mapping, categories
 
 
 ###############
@@ -63,9 +63,9 @@ def prompt_for_cols(filename, headers=None):
 
 
 def list_files(file_history_type, path=''):
-    print('There are the following files in the data/ directory.')
+    print('\nThere are the following files in the data/ directory.')
     print(os.listdir(path))
-    bank_filename = path + '/' + input('What is the name of the file containing your', file_history_type, ' history? ')
+    bank_filename = path + '/' + input('What is the name of the file containing your ' + file_history_type + ' history? ')
     rows_to_skip = int(input('How many rows, if any, should be skipped to obtain the headers of your file? '))
     return bank_filename, rows_to_skip
 
