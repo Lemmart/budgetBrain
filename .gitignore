@@ -136,3 +136,5 @@ dmypy.json
 # Sensitive data:
 **/data/*
 **/src/*
+**/~*
+**/output/*
