@@ -4,6 +4,7 @@ import os
 import calendar
 import math
 
+
 ################
 ### BUILDERS ###
 ################
@@ -11,7 +12,6 @@ import math
 def month_mapping_builder():
     month_map = {}
     for month in range(1, 13):
-        # month = datetime.strptime(str(i), '%m').strftime('%b')
         month_map[month] = {}
     print('[INFO] Finished building {month : {} } mapping.\n')
     return month_map
@@ -24,17 +24,18 @@ def expense_to_category_and_category_mapping_builder(exp_to_cat_filename='expToC
     exp_to_cat_mapping = {}
 
     if os.path.exists(exp_to_cat_filename_with_path):
-        df = pd.read_csv(exp_to_cat_filename_with_path, sep=':')
-        for index, entry in df.iterrows():
-            expense = entry[0]
-            category = entry[1]
-
-            # {category} set
-            if category not in categories:
-                categories.add(category)
-            # {expense : category} mapping
-            if expense not in exp_to_cat_mapping:
-                exp_to_cat_mapping[expense] = category
+        with open(exp_to_cat_filename_with_path) as f:
+            for line in f:
+                entry = line.replace('"', '').replace('\n', '').split(':')
+                entry = [0 if item == '' else item for item in entry]
+                expense = entry[0]
+                category = entry[1]
+                # {category} set
+                if category not in categories:
+                    categories.add(category)
+                # {expense : category} mapping
+                if expense not in exp_to_cat_mapping:
+                    exp_to_cat_mapping[expense] = category
     else:
         print('[DEBUG] Failed to find file', exp_to_cat_filename_with_path, '.\n')
 
@@ -61,9 +62,10 @@ def builder():
 def prompt_for_cols(filename, headers=None):
     print('Given the following headers in the file', filename, '\n', headers)
     exp_name = input('Which column should be used for the expense name? ')
+    exp_name_backup = input('Which column should be used for the expense name if ' + exp_name + ' is empty? ')
     exp_amount = input('Which column should be used for the expense amount? ')
     exp_date = input('Which column should be used for the expense date? ')
-    return exp_name, exp_amount, exp_date
+    return exp_name, exp_name_backup, exp_amount, exp_date
 
 
 def list_files(path=''):
@@ -74,42 +76,57 @@ def list_files(path=''):
     return bank_filename, rows_to_skip
 
 
-def update_monthly_mappings(df, name, amount, date, updated_mappings, categories, exp_to_cat_mapping):
+def validate_exp_name(exp_name, name, name_backup, row, keys):
+    if not type(exp_name) == str and math.isnan(exp_name):
+        print('\n[Error] The column', name, 'is empty for entry', row)
+        print(keys)
+        tmp_name = input('Which column should be used for the expense name? ')
+        if len(tmp_name) < 2:
+            tmp_name = name_backup
+        exp_name = row[tmp_name].strip()
+    else:
+        exp_name = exp_name.strip()
+    exp_name = exp_name.replace(':', '-')
+    return exp_name
+
+
+def update_monthly_mappings(df, name, name_backup, amount, date, updated_mappings, categories, exp_to_cat_mapping):
+    keys = df.keys()
 
     for index, row in df.iterrows():
         row = df.loc[index]
-        exp_name = row[name]
-        exp_amount = row[amount] * -1   # values in banking records are shown (properly) as negatives
+        exp_name = validate_exp_name(row[name], name, name_backup, row, keys)
+        exp_amount = row[amount] * -1   # values in banking records are shown (properly) as negative
+        print(row[date])
+
         exp_month = row[date].month
 
-        print()
-        print(index, exp_name, exp_amount, exp_month, sep='\t')
-        print()
+        print('\n',index, exp_name, exp_amount, exp_month, '\n', sep='\t')
 
         if math.isnan(exp_amount):
             print('[INFO] Skipping update.', exp_name, 'has an amount with value NaN.')
         elif exp_name in exp_to_cat_mapping:
             exp_category = exp_to_cat_mapping[exp_name]
+            if exp_category not in updated_mappings[exp_month]:
+                updated_mappings[exp_month][exp_category] = 0
             updated_mappings[exp_month][exp_category] += exp_amount
-            print('[INFO] autoupdate amount.')
+            print('[INFO] Autoupdate amount for', exp_name, 'in', exp_category, 'category.')
         else:
             print('Categories are:',updated_mappings[exp_month].keys())
-            exp_category = input('Category for [' + exp_name + "] [from above list, enter a new one, or 'n' to ignore]: ")
-            if not exp_category.__eq__('skip'):
-                exp_to_cat_mapping[exp_name] = exp_category
-                if exp_category not in updated_mappings[exp_month]:
-                    updated_mappings[exp_month][exp_category] = 0
-                updated_mappings[exp_month][exp_category] += exp_amount
-                print(
-                    '[INFO] Updated {month : {category : $} } mapping for month: ['
-                    + str(exp_month) + '] category: ['
-                    + exp_category + '] amount: ['
-                    + str(exp_amount) + ']'
-                    + ' -> New total: ['
-                    + str(updated_mappings[exp_month][exp_category]) + ']'
-                )
-            else:
-                print("[INFO] Skipping update. Option 'skip' input. ")
+            exp_category = input('Category for [' + exp_name + "] [from above list, enter a new one, or 'skip' to ignore]: ")
+
+            exp_to_cat_mapping[exp_name] = exp_category
+            if exp_category not in updated_mappings[exp_month]:
+                updated_mappings[exp_month][exp_category] = 0
+            updated_mappings[exp_month][exp_category] += exp_amount
+            print(
+                '[INFO] Updated {month : {category : $} } mapping for month: ['
+                + str(exp_month) + '] category: ['
+                + exp_category + '] amount: ['
+                + str(exp_amount) + ']'
+                + ' -> New total: ['
+                + str(updated_mappings[exp_month][exp_category]) + ']'
+            )
     return updated_mappings, exp_to_cat_mapping
 
 
@@ -119,24 +136,21 @@ def update_monthly_mappings(df, name, amount, date, updated_mappings, categories
 
 def reader(month_cat_amt_mapping, categories, exp_to_cat_mapping):
     # TODO: make date column selectable PRIOR to read_csv NOT after
-    # TODO: Explore potential to wrap all reader functions into loop
     # TODO: Enable reading in 'Credit' column on credit card statement to illuminate returns/payments
-    # updated_mapping, exp_to_cat_mapping = bank_reader(basic_mapping, categories, exp_to_cat_mapping)
-    # updated_mapping, exp_to_cat_mapping = credit_card_reader(basic_mapping, categories, exp_to_cat_mapping)
-    # updated_mapping, exp_to_cat_mapping = rent_and_utility_reader(basic_mapping, categories, exp_to_cat_mapping)
 
     num_files = int(input('How many files would you like to import? '))
     if num_files > 0:
         for i in range(num_files):
             filename, rows_to_skip = list_files('data/')
             df = pd.read_csv(filename, skiprows=rows_to_skip, parse_dates=['Date'])
-            name, amount, date = prompt_for_cols(
+            name, name_backup, amount, date = prompt_for_cols(
                 filename,
                 df.keys()
             )
             month_cat_amt_mapping, exp_to_cat_mapping = update_monthly_mappings(
                 df,
                 name,
+                name_backup,
                 amount,
                 date,
                 month_cat_amt_mapping,
@@ -172,10 +186,10 @@ def enriched_mapping_writer(enriched_mapping, filename='budget_report'):
             f.write(calendar.month_name[month] + ':\n')
             month_total = 0
             for category, amt in categories.items():
-                if not (category is 'income' or category is 'skip'):     # 'income' and 'n' categories are to be ignored ('n' is ignore)
+                if not (category == 'income' or category == 'skip'):     # 'income' and 'n' categories are to be ignored ('n' is ignore)
                     month_total += amt
-                    category_summary = '\t' + category + ': ' + str(round(amt, 2)) + '\n'
-                    f.write(category_summary)
+                category_summary = '\t' + category + ': ' + str(round(amt, 2)) + '\n'
+                f.write(category_summary)
             annual_total += month_total
             month_summary = 'Total: $' + str(round(month_total, 2)) + '\n'
             f.write(month_summary)
