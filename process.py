@@ -84,6 +84,24 @@ def list_files(read_files, path=''):
     return bank_filename, rows_to_skip, exp_amts_are_neg
 
 
+def is_valid_entry(fields: list) -> bool:
+    for field in fields:
+        f = str(field)
+        if (len(f) <= 3) and ('nan' in f.lower()):
+            return False
+    return True
+
+
+def validate_exp(exp_row, col_names, name, name_backup, amount, date, exp_amts_are_neg):
+    is_valid_exp = is_valid_entry([exp_row[name], exp_row[name_backup], exp_row[date]])
+    if not is_valid_exp:
+        return '-', 0.0, is_valid_exp
+    else:
+        exp_name = validate_exp_name(exp_row[name], name, name_backup, exp_row, col_names)
+        exp_amt = validate_exp_amt(exp_row[amount], exp_amts_are_neg)
+        return exp_name, exp_amt, is_valid_exp
+
+
 def validate_exp_name(exp_name, name, name_backup, row, keys):
     if not type(exp_name) == str and math.isnan(exp_name):
         print('\n[Error] The column', name, 'is empty for entry', row)
@@ -98,23 +116,36 @@ def validate_exp_name(exp_name, name, name_backup, row, keys):
     return exp_name
 
 
-def update_monthly_mappings(df, name, name_backup, amount, date, updated_mappings, exp_to_cat_mapping, exp_amts_are_neg):
+def validate_exp_amt(exp_amt, exp_amts_are_neg: bool) -> float:
+    if type(exp_amt) == str:
+        exp_amt = float(exp_amt.replace(',', '').strip('$ '))
+    if not exp_amts_are_neg:
+        exp_amt *= -1
+    return exp_amt
+
+
+def update_monthly_mappings(df, name, name_backup, amount, date, updated_mappings, exp_to_cat_mapping, exp_amts_are_neg: bool):
     keys = df.keys()
 
     for index, row in df.iterrows():
         row = df.loc[index]
-        exp_name = validate_exp_name(row[name], name, name_backup, row, keys)
-        exp_amount = row[amount]
-        if not exp_amts_are_neg:
-            exp_amount *= -1
+        exp_name, exp_amount, is_valid_exp = validate_exp(row, keys, name, name_backup, amount, date, exp_amts_are_neg)
+        # exp_name = validate_exp_name(row[name], name, name_backup, row, keys)
+        # exp_amount = validate_exp_amt(row[amount], exp_amts_are_neg)
+        # exp_amount = float(row[amount])
+        # if not exp_amts_are_neg:
+        #     exp_amount *= -1
+
+        if not is_valid_exp:
+            continue
         print(row[date])
 
         exp_month = row[date].month
 
         print('\n', index, exp_name, exp_amount, exp_month, '\n', sep='\t')
 
-        if math.isnan(exp_amount):
-            print('[INFO] Skipping update.', exp_name, 'has an amount with value NaN.')
+        if math.isnan(exp_amount) or math.isnan(exp_month):
+            print('[INFO] Skipping update.', exp_name, 'has an amount or month with value NaN.')
         elif exp_name in exp_to_cat_mapping:
             exp_category = exp_to_cat_mapping[exp_name]
             if exp_category not in updated_mappings[exp_month]:
@@ -154,7 +185,15 @@ def reader(month_cat_amt_mapping, exp_to_cat_mapping):
         for i in range(num_files):
             filename, rows_to_skip, exp_amts_are_neg = list_files(read_files, 'data/')
             read_files.append(filename)
-            df = pd.read_csv(filename, skiprows=rows_to_skip, parse_dates=['Date'])
+            try:
+                df = pd.read_csv(filename, skiprows=rows_to_skip, parse_dates=['Date'])
+            except ValueError:
+                print('\n[Error] Failed to read csv into dataframe with automatic date parsing.')
+                df = pd.read_csv(filename, skiprows=rows_to_skip)
+                print('\nGiven the following headers in the file', filename, '\n', df.keys())
+                date_col = input('Please enter the column name used for transaction date: ')
+                df[date_col] = pd.to_datetime(df[date_col])
+            #     TODO: DON'T PARSE DATES, BUT RETROACTIVELY PARSE THEM
             name, name_backup, amount, date = prompt_for_cols(
                 filename,
                 df.keys()
